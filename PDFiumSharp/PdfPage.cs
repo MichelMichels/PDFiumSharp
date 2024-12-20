@@ -13,30 +13,34 @@ using System.Runtime.InteropServices;
 
 namespace PDFiumSharp
 {
-    public sealed class PdfPage : NativeWrapper<FPDF_PAGE>
+    public sealed class PdfPage : DisposableNativeWrapper<Native.FpdfPageT>
     {
 		/// <summary>
 		/// Gets the page width (excluding non-displayable area) measured in points.
 		/// One point is 1/72 inch(around 0.3528 mm).
 		/// </summary>
-		public double Width => PDFium.FPDF_GetPageWidth(Handle);
+		public double Width { get { lock (Document.NativeObject) { return Native.fpdfview.FPDF_GetPageWidth(NativeObject); } } }
 
 		/// <summary>
 		/// Gets the page height (excluding non-displayable area) measured in points.
 		/// One point is 1/72 inch(around 0.3528 mm).
 		/// </summary>
-		public double Height => PDFium.FPDF_GetPageHeight(Handle);
+		public double Height { get { lock (Document.NativeObject) { return Native.fpdfview.FPDF_GetPageHeight(NativeObject); } } }
 
 		/// <summary>
 		/// Gets the page width and height (excluding non-displayable area) measured in points.
 		/// One point is 1/72 inch(around 0.3528 mm).
 		/// </summary>
-		public (double Width, double Height) Size
+		public SizeDouble Size
 		{
 			get
 			{
-				if (PDFium.FPDF_GetPageSizeByIndex(Document.Handle, Index, out var width, out var height))
-					return (width, height);
+				double width = default, height = default;
+                lock (Document.NativeObject)
+                {
+                    if (Native.fpdfview.FPDF_GetPageSizeByIndex(Document.NativeObject, Index, ref width, ref height) != 0)
+                        return new(width, height);
+                }
 				throw new PDFiumException();
 			}
 		}
@@ -46,8 +50,8 @@ namespace PDFiumSharp
 		/// </summary>
 		public PageOrientations Orientation
 		{
-			get => PDFium.FPDFPage_GetRotation(Handle);
-			set => PDFium.FPDFPage_SetRotation(Handle, value);
+            get { lock (Document.NativeObject) { return (PageOrientations)Native.fpdf_edit.FPDFPageGetRotation(NativeObject); } }
+            set { lock (Document.NativeObject) { Native.fpdf_edit.FPDFPageSetRotation(NativeObject, (int)value); } }
 		}
 
 		/// <summary>
@@ -62,17 +66,26 @@ namespace PDFiumSharp
 
 		//public string Label => PDFium.FPDF_GetPageLabel(Document.Handle, Index);
 
-		PdfPage(PdfDocument doc, FPDF_PAGE page, int index)
-			: base(page)
+		PdfPage(PdfDocument doc, Native.FpdfPageT nativeObj, int index)
+			: base(nativeObj)
 		{
-			if (page.IsNull)
-				throw new PDFiumException();
 			Document = doc;
 			Index = index;
 		}
 
-		internal static PdfPage Load(PdfDocument doc, int index) => new PdfPage(doc, PDFium.FPDF_LoadPage(doc.Handle, index), index);
-		internal static PdfPage New(PdfDocument doc, int index, double width, double height) => new PdfPage(doc, PDFium.FPDFPage_New(doc.Handle, index, width, height), index);
+        internal static PdfPage Load(PdfDocument doc, int index)
+        {
+            Native.FpdfPageT handle;
+            lock (doc.NativeObject) { handle = Native.fpdfview.FPDF_LoadPage(doc.NativeObject, index); }
+            return new(doc, handle, index);
+        }
+
+        internal static PdfPage New(PdfDocument doc, int index, double width, double height)
+        {
+            Native.FpdfPageT handle;
+            lock (doc.NativeObject) { handle = Native.fpdf_edit.FPDFPageNew(doc.NativeObject, index, width, height); }
+            return new(doc, handle, index);
+        }
 
 		/// <summary>
 		/// Renders the page to a <see cref="PDFiumBitmap"/>
@@ -81,12 +94,19 @@ namespace PDFiumSharp
 		/// <param name="rectDest">The destination rectangle in <paramref name="renderTarget"/>.</param>
 		/// <param name="orientation">The orientation at which the page is to be rendered.</param>
 		/// <param name="flags">The flags specifying how the page is to be rendered.</param>
-		public void Render(PDFiumBitmap renderTarget, (int left, int top, int width, int height) rectDest, PageOrientations orientation = PageOrientations.Normal, RenderingFlags flags = RenderingFlags.None)
+		public void Render(PDFiumBitmap renderTarget, RectangleInt32 rectDest, PageOrientations orientation = PageOrientations.Normal, RenderingFlags flags = RenderingFlags.None)
 		{
 			if (renderTarget == null)
 				throw new ArgumentNullException(nameof(renderTarget));
 
-			PDFium.FPDF_RenderPageBitmap(renderTarget.Handle, this.Handle, rectDest.left, rectDest.top, rectDest.width, rectDest.height, orientation, flags);
+            var size = rectDest.Size;
+            lock(Document.NativeObject)
+            {
+                lock(renderTarget.NativeObject)
+                {
+                    Native.fpdfview.FPDF_RenderPageBitmap(renderTarget.NativeObject, NativeObject, rectDest.Left, rectDest.Top, size.Width, size.Height, (int)orientation, (int)flags);
+                }
+            }
 		}
 
 		/// <summary>
@@ -97,28 +117,52 @@ namespace PDFiumSharp
 		/// <param name="flags">The flags specifying how the page is to be rendered.</param>
 		public void Render(PDFiumBitmap renderTarget, PageOrientations orientation = PageOrientations.Normal, RenderingFlags flags = RenderingFlags.None)
 		{
-			Render(renderTarget, (0, 0, renderTarget.Width, renderTarget.Height), orientation, flags);
+			Render(renderTarget, new(0, 0, renderTarget.Width, renderTarget.Height), orientation, flags);
 		}
 
-		public (double X, double Y) DeviceToPage((int left, int top, int width, int height) displayArea, int deviceX, int deviceY, PageOrientations orientation = PageOrientations.Normal)
+		public CoordinatesDouble DeviceToPage(RectangleInt32 displayArea, CoordinatesInt32 coordDevice, PageOrientations orientation = PageOrientations.Normal)
 		{
-			(var left, var top, var width, var height) = displayArea;
-			PDFium.FPDF_DeviceToPage(Handle, left, top, width, height, orientation, deviceX, deviceY, out var x, out var y);
-			return (x, y);
+            var size = displayArea.Size;
+			double x = default, y = default;
+            lock (Document.NativeObject) { Native.fpdfview.FPDF_DeviceToPage(NativeObject, displayArea.Left, displayArea.Top, size.Width, size.Height, (int)orientation, coordDevice.X, coordDevice.Y, ref x, ref y); }
+			return new(x, y);
 		}
 
-		public (int X, int Y) PageToDevice((int left, int top, int width, int height) displayArea, double pageX, double pageY, PageOrientations orientation = PageOrientations.Normal)
-		{
-			(var left, var top, var width, var height) = displayArea;
-			PDFium.FPDF_PageToDevice(Handle, left, top, width, height, orientation, pageX, pageY, out var x, out var y);
-			return (x, y);
+		public CoordinatesInt32 PageToDevice(RectangleInt32 displayArea, CoordinatesDouble coordPage, PageOrientations orientation = PageOrientations.Normal)
+        {
+            var size = displayArea.Size;
+            int x = default, y = default;
+            lock (Document.NativeObject) { Native.fpdfview.FPDF_PageToDevice(NativeObject, displayArea.Left, displayArea.Top, size.Width, size.Height, (int)orientation, coordPage.X, coordPage.Y, ref x, ref y); }
+			return new(x, y);
 		}
 
-		public FlattenResults Flatten(FlattenFlags flags) => PDFium.FPDFPage_Flatten(Handle, flags);
+        public FlattenResults Flatten(FlattenFlags flags) 
+        {
+            lock (Document.NativeObject) { return (FlattenResults)Native.fpdf_flatten.FPDFPageFlatten(NativeObject, (int)flags); } 
+        }
 
-		protected override void Dispose(FPDF_PAGE handle)
+        protected override void Dispose(bool disposing) 
+        {
+            lock (disposing ? Document.NativeObject : new object()) { Native.fpdfview.FPDF_ClosePage(NativeObject); }
+        }
+
+        public PdfTextPage GetTextPage() => PdfTextPage.Load(this);
+
+		public IEnumerable<PdfLink> Links
 		{
-			PDFium.FPDF_ClosePage(handle);
+			get
+			{
+				int idx = 0;
+                var success = true;
+                while(success)
+                {
+                    Native.FpdfLinkT? handle;
+                    lock (Document.NativeObject) { success = Native.fpdf_doc.FPDFLinkEnumerate(NativeObject, ref idx, out handle); }
+                    if (success)
+                        yield return new(this, handle!);
+
+                }
+			}
 		}
 	}
 }

@@ -1,0 +1,27 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <Import Project="../Properties.props" />
+
+  <PropertyGroup>
+    <VersionPrefix>1.$(PDFiumBuild).0</VersionPrefix>
+    <VersionSuffix></VersionSuffix>
+    <Description>Native PDFium binaries, as required by PDFiumSharp.</Description>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <EmbedAllSources>false</EmbedAllSources>
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Source: https://github.com/bblanchon/pdfium-binaries -->
+    <Content Include="runtimes\**" PackagePath="runtimes" />
+    
+    <Content Include="build\**" PackagePath="build" />
+    <Content Include="buildMultiTargeting\**" PackagePath="buildMultiTargeting" />
+  </ItemGroup>
+  
+</Project>

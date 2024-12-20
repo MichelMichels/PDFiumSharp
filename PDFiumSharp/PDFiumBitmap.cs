@@ -17,33 +17,39 @@ namespace PDFiumSharp
 	/// <summary>
 	/// A bitmap to which a <see cref="PdfPage"/> can be rendered.
 	/// </summary>
-    public sealed class PDFiumBitmap : NativeWrapper<FPDF_BITMAP>
+    public sealed class PDFiumBitmap : DisposableNativeWrapper<Native.FpdfBitmapT>
     {
-		public int Width => PDFium.FPDFBitmap_GetWidth(Handle);
-		public int Height => PDFium.FPDFBitmap_GetHeight(Handle);
-		public int Stride => PDFium.FPDFBitmap_GetStride(Handle);
-		public IntPtr Scan0 => PDFium.FPDFBitmap_GetBuffer(Handle);
+		public int Width { get { lock (NativeObject) { return Native.fpdfview.FPDFBitmapGetWidth(NativeObject); } } }
+		public int Height { get { lock (NativeObject) { return Native.fpdfview.FPDFBitmapGetHeight(NativeObject); } } }
+		public int Stride { get { lock (NativeObject) { return Native.fpdfview.FPDFBitmapGetStride(NativeObject); } } }
+		public IntPtr Scan0 { get { lock (NativeObject) { return Native.fpdfview.FPDFBitmapGetBuffer(NativeObject); } } }
 		public BitmapFormats Format { get; }
 		public int BytesPerPixel => GetBytesPerPixel(Format);
 
-		PDFiumBitmap(FPDF_BITMAP bitmap, BitmapFormats format)
-			: base(bitmap)
+		readonly long _unmanagedMemorySize;
+
+		PDFiumBitmap(Native.FpdfBitmapT nativeObj, BitmapFormats format, long unmanagedMemorySize)
+			: base(nativeObj)
 		{
-			if (bitmap.IsNull)
-				throw new PDFiumException();
+			if (unmanagedMemorySize < 0)
+				throw new ArgumentOutOfRangeException(nameof(unmanagedMemorySize));
 			GetBytesPerPixel(format);
 			Format = format;
-		}
+			_unmanagedMemorySize = unmanagedMemorySize;
+			if (_unmanagedMemorySize > 0)
+				GC.AddMemoryPressure(_unmanagedMemorySize);
+        }
 
 		static int GetBytesPerPixel(BitmapFormats format)
 		{
-			if (format == BitmapFormats.FPDFBitmap_BGR)
-				return 3;
-			if (format == BitmapFormats.FPDFBitmap_BGRA || format == BitmapFormats.FPDFBitmap_BGRx)
-				return 4;
-			if (format == BitmapFormats.FPDFBitmap_Gray)
-				return 1;
-			throw new ArgumentOutOfRangeException(nameof(format));
+			switch (format)
+            {
+				case BitmapFormats.FPDFBitmap_BGR: return 3;
+				case BitmapFormats.FPDFBitmap_BGRA:
+				case BitmapFormats.FPDFBitmap_BGRx: return 4;
+				case BitmapFormats.FPDFBitmap_Gray: return 1;
+				default: throw new ArgumentOutOfRangeException(nameof(format));
+			}
 		}
 
 		/// <summary>
@@ -59,7 +65,7 @@ namespace PDFiumSharp
 		/// <see cref="BitmapFormats.FPDFBitmap_BGRA"/> or <see cref="BitmapFormats.FPDFBitmap_BGRx"/>.
 		/// </remarks>
 		public PDFiumBitmap(int width, int height, bool hasAlpha)
-			: this(PDFium.FPDFBitmap_Create(width, height, hasAlpha), hasAlpha ? BitmapFormats.FPDFBitmap_BGRA : BitmapFormats.FPDFBitmap_BGRx) { }
+			: this(Native.fpdfview.FPDFBitmapCreate(width, height, hasAlpha ? 1 : 0), hasAlpha ? BitmapFormats.FPDFBitmap_BGRA : BitmapFormats.FPDFBitmap_BGRx, 4L * width * height) { }
 
 		/// <summary>
 		/// Creates a new <see cref="PDFiumBitmap"/> using memory allocated by the caller.
@@ -73,15 +79,15 @@ namespace PDFiumSharp
 		/// <param name="scan0">The adress of the memory block which holds the pixel values.</param>
 		/// <param name="stride">The number of bytes per image row.</param>
 		public PDFiumBitmap(int width, int height, BitmapFormats format, IntPtr scan0, int stride)
-			: this(PDFium.FPDFBitmap_CreateEx(width, height, format, scan0, stride), format) { }
+			: this(Native.fpdfview.FPDFBitmapCreateEx(width, height, (int)format, scan0, stride), format, 0) { }
 
 		/// <summary>
 		/// Fills a rectangle in the <see cref="PDFiumBitmap"/> with <paramref name="color"/>.
 		/// The pixel values in the rectangle are replaced and not blended.
 		/// </summary>
-		public void FillRectangle(int left, int top, int width, int height, FPDF_COLOR color)
+		public void FillRectangle(int left, int top, int width, int height, PDFiumColor color)
 		{
-			PDFium.FPDFBitmap_FillRect(Handle, left, top, width, height, color);
+            lock (NativeObject) { Native.fpdfview.FPDFBitmapFillRect(NativeObject, left, top, width, height, unchecked((uint)color.ARGB)); }
 		}
 
 		/// <summary>
@@ -89,12 +95,12 @@ namespace PDFiumSharp
 		/// The pixel values in the rectangle are replaced and not blended.
 		/// </summary>
 		/// <param name="color"></param>
-		public void Fill(FPDF_COLOR color) => FillRectangle(0, 0, Width, Height, color);
+		public void Fill(PDFiumColor color) => FillRectangle(0, 0, Width, Height, color);
 
 		/// <summary>
 		/// Saves the <see cref="PDFiumBitmap"/> in the <see href="https://en.wikipedia.org/wiki/BMP_file_format">BMP</see> file format.
 		/// </summary>
-		public void Save(Stream stream, double dpiX = 72, double dpiY = 72)
+		public void Save(Stream stream, double dpiX = 96, double dpiY = 96)
 		{
 			AsBmpStream(dpiX, dpiY).CopyTo(stream);
 		}
@@ -102,7 +108,7 @@ namespace PDFiumSharp
 		/// <summary>
 		/// Saves the <see cref="PDFiumBitmap"/> in the <see href="https://en.wikipedia.org/wiki/BMP_file_format">BMP</see> file format.
 		/// </summary>
-		public void Save(string filename, double dpiX = 72, double dpiY = 72)
+		public void Save(string filename, double dpiX = 96, double dpiY = 96)
 		{
 			using (FileStream stream = new FileStream(filename, FileMode.Create))
 				Save(stream, dpiX, dpiY);
@@ -112,14 +118,14 @@ namespace PDFiumSharp
 		/// Exposes the underlying image data directly as read-only stream in the
 		/// <see href="https://en.wikipedia.org/wiki/BMP_file_format">BMP</see> file format.
 		/// </summary>
-		public Stream AsBmpStream(double dpiX = 72, double dpiY = 72) => new BmpStream(this, dpiX, dpiY);
+		public Stream AsBmpStream(double dpiX = 96, double dpiY = 96) => new BmpStream(this, dpiX, dpiY);
 
-		public void Dispose() => ((IDisposable)this).Dispose();
-
-		protected override void Dispose(FPDF_BITMAP handle)
-		{
-			PDFium.FPDFBitmap_Destroy(handle);
-		}
+        protected override void Dispose(bool disposing)
+        {
+            lock (NativeObject) { Native.fpdfview.FPDFBitmapDestroy(NativeObject); }
+            if (_unmanagedMemorySize > 0)
+                GC.RemoveMemoryPressure(_unmanagedMemorySize);
+        }
 
 		class BmpStream : Stream
 		{

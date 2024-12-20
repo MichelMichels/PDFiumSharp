@@ -9,6 +9,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Text;
+using System.Diagnostics.CodeAnalysis;
 
 namespace PDFiumSharp
 {
@@ -16,22 +17,14 @@ namespace PDFiumSharp
     {
 		readonly PdfDocument _doc;
 
-		/// 
-		public int Count => PDFium.FPDF_CountNamedDests(_doc.Handle);
+		public int Count { get { lock (_doc.NativeObject) { return checked((int)Native.fpdfview.FPDF_CountNamedDests(_doc.NativeObject)); } } }
 
 		internal PdfDestinationCollection(PdfDocument doc)
 		{
 			_doc = doc;
 		}
 
-		public PdfDestination this[string name]
-		{
-			get
-			{
-				var handle = PDFium.FPDF_GetNamedDestByName(_doc.Handle, name);
-				return handle.IsNull ? null : new PdfDestination(_doc, handle, name);
-			}
-		}
+		public PdfDestination this[string name] => TryGetDestination(name, out var value) ? value : throw new KeyNotFoundException();
 
 		public PdfDestination this[int index]
 		{
@@ -39,10 +32,27 @@ namespace PDFiumSharp
 			{
 				if (index < 0 || index >= Count)
 					throw new ArgumentOutOfRangeException(nameof(index));
-				(var handle, var name) = PDFium.FPDF_GetNamedDest(_doc.Handle, index);
-				return handle.IsNull ? null : new PdfDestination(_doc, handle, name);
+                Native.FpdfDestT? dest;
+                string? name;
+                lock (_doc.NativeObject)
+                {
+                    if (!Native.fpdfview.FPDF_GetNamedDest(_doc.NativeObject, index, out dest, out name))
+                        throw new KeyNotFoundException();
+                }
+				return new(_doc, dest, name);
 			}
 		}
+
+        public bool TryGetDestination(string name, [MaybeNullWhen(false)] out PdfDestination value)
+        {
+            value = default;
+            Native.FpdfDestT dest;
+            lock (_doc.NativeObject) { dest = Native.fpdfview.FPDF_GetNamedDestByName(_doc.NativeObject, name); }
+            if (dest == null)
+                return false;
+            value = new(_doc, dest, name);
+            return true;
+        }
 
 		IEnumerator<PdfDestination> IEnumerable<PdfDestination>.GetEnumerator()
 		{

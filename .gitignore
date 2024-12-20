@@ -260,4 +260,6 @@ paket-files/
 __pycache__/
 *.pyc
 
-*.g.cs
+*.dll
+*.so
+*.dylib

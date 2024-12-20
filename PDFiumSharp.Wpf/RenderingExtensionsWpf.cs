@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using PDFiumSharp.Extensions;
 
 namespace PDFiumSharp
 {
@@ -19,12 +20,12 @@ namespace PDFiumSharp
 		/// <param name="rectDest">The destination rectangle in <paramref name="renderTarget"/>.</param>
 		/// <param name="orientation">The orientation at which the page is to be rendered.</param>
 		/// <param name="flags">The flags specifying how the page is to be rendered.</param>
-		public static void Render(this PdfPage page, WriteableBitmap renderTarget, (int left, int top, int width, int height) rectDest, PageOrientations orientation = PageOrientations.Normal, RenderingFlags flags = RenderingFlags.None)
+		public static void Render(this PdfPage page, WriteableBitmap renderTarget, RectangleInt32 rectDest, PageOrientations orientation = PageOrientations.Normal, RenderingFlags flags = RenderingFlags.None)
 		{
 			if (renderTarget == null)
 				throw new ArgumentNullException(nameof(renderTarget));
 
-			if (rectDest.left >= renderTarget.PixelWidth || rectDest.top >= renderTarget.PixelHeight)
+			if (rectDest.Left >= renderTarget.PixelWidth || rectDest.Top >= renderTarget.PixelHeight)
 				return;
 
 			var bitmapFormat = GetBitmapFormat(renderTarget.Format);
@@ -34,19 +35,23 @@ namespace PDFiumSharp
 				page.Render(tmpBitmap, rectDest, orientation, flags);
 			}
 
-			if (rectDest.left < 0)
+			var (left, top, _, _, width, height) = rectDest;
+
+			if (left < 0)
 			{
-				rectDest.width += rectDest.left;
-				rectDest.left = 0;
+				width += left;
+				left = 0;
 			}
-			if (rectDest.top < 0)
+			if (top < 0)
 			{
-				rectDest.height += rectDest.top;
-				rectDest.top = 0;
+				height += top;
+				top = 0;
 			}
-			rectDest.width = Math.Min(rectDest.width, renderTarget.PixelWidth);
-			rectDest.height = Math.Min(rectDest.height, renderTarget.PixelHeight);
-			renderTarget.AddDirtyRect(new Int32Rect(rectDest.left, rectDest.top, rectDest.width, rectDest.height));
+
+			width = Math.Min(width, renderTarget.PixelWidth);
+			height = Math.Min(height, renderTarget.PixelHeight);
+
+			renderTarget.AddDirtyRect(new Int32Rect(left, top, width, height));
 			renderTarget.Unlock();
 		}
 
@@ -59,7 +64,25 @@ namespace PDFiumSharp
 		/// <param name="flags">The flags specifying how the page is to be rendered.</param>
 		public static void Render(this PdfPage page, WriteableBitmap renderTarget, PageOrientations orientation = PageOrientations.Normal, RenderingFlags flags = RenderingFlags.None)
 		{
-			page.Render(renderTarget, (0, 0, renderTarget.PixelWidth, renderTarget.PixelHeight), orientation, flags);
+			page.Render(renderTarget, new(0, 0, renderTarget.PixelWidth, renderTarget.PixelHeight, true), orientation, flags);
+		}
+
+		public static ImageSource CreateImageSource(this PdfPage page, int width, int height, bool withAlpha = true, PageOrientations orientation = PageOrientations.Normal, RenderingFlags flags = RenderingFlags.None)
+		{
+			using (var memoryBitmap = new PDFiumBitmap(width, height, withAlpha))
+			{
+				page.Render(memoryBitmap);
+				var bitmap = new BitmapImage();
+				bitmap.BeginInit();
+				bitmap.DecodePixelWidth = width;
+				bitmap.DecodePixelHeight = height;
+				bitmap.CacheOption = BitmapCacheOption.OnLoad;
+				bitmap.StreamSource = memoryBitmap.AsBmpStream();
+				bitmap.EndInit();
+				bitmap.StreamSource = null;
+				bitmap.Freeze();
+				return bitmap;
+			}
 		}
 
 		static BitmapFormats GetBitmapFormat(PixelFormat pixelFormat)
@@ -74,5 +97,20 @@ namespace PDFiumSharp
 				return BitmapFormats.FPDFBitmap_Gray;
 			throw new NotSupportedException($"Pixel format {pixelFormat} is not supported.");
 		}
-	}
+    }
+
+    namespace WpfExtensions
+    {
+        public static class Int32RectExtensions
+        {
+            public static Int32Rect ToInt32Rect(this in RectangleInt32 rect)
+            {
+                var size = rect.Size;
+                return new(rect.Left, rect.Top, size.Width, size.Height);
+            }
+
+            public static RectangleInt32 ToRectangleInt32(this Int32Rect rect)
+                => new RectangleInt32(rect.X, rect.Y, rect.Width, rect.Height, true);
+        }
+    }
 }

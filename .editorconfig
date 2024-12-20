@@ -1,0 +1,26 @@
+# top-most EditorConfig file
+root = true
+
+# CSharp formatting settings:
+[*.cs]
+indent_style = space
+indent_size = 4
+
+# csproj settings:
+[*.{csproj,targets,props}]
+indent_style = space
+indent_size = 2
+
+# C/C++ formatting settings:
+[*.{cpp,hpp,c,h}]
+indent_style = space
+indent_size = 2
+
+# JSON formatting settings:
+[*.json]
+indent_style = space
+indent_size = 2
+
+# Disable nullable warnings: https://docs.microsoft.com/en-us/dotnet/csharp/nullable-references#nullable-contexts
+[**/CppSharp/src/Runtime/*.cs]
+generated_code = true

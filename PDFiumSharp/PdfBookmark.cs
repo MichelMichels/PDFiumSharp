@@ -12,33 +12,50 @@ using PDFiumSharp.Types;
 
 namespace PDFiumSharp
 {
-    public sealed class PdfBookmark : NativeWrapper<FPDF_BOOKMARK>
+    public sealed class PdfBookmark : NativeWrapper<Native.FpdfBookmarkT>
     {
-		public PdfDocument Document { get; }
+        public PdfDocument Document { get; }
 
-		public IEnumerable<PdfBookmark> Children
-		{
-			get
-			{
-				FPDF_BOOKMARK handle = PDFium.FPDFBookmark_GetFirstChild(Document.Handle, Handle);
-				while (!handle.IsNull)
-				{
-					yield return new PdfBookmark(Document, handle);
-					handle = PDFium.FPDFBookmark_GetNextSibling(Document.Handle, handle);
-				}
-			}
-		}
+        public IEnumerable<PdfBookmark> Children
+        {
+            get
+            {
+                Native.FpdfBookmarkT nativeObj;
+                lock (Document.NativeObject) { nativeObj = Native.fpdf_doc.FPDFBookmarkGetFirstChild(Document.NativeObject, NativeObject); }
+                while (nativeObj != null)
+                {
+                    yield return new PdfBookmark(Document, nativeObj);
+                    lock (Document.NativeObject) { nativeObj = Native.fpdf_doc.FPDFBookmarkGetNextSibling(Document.NativeObject, nativeObj); }
+                }
+            }
+        }
 
-		public string Title => PDFium.FPDFBookmark_GetTitle(Handle);
+        public string Title { get { lock (Document.NativeObject) { return Native.fpdf_doc.FPDFBookmarkGetTitle(NativeObject); } } }
 
-		public PdfDestination Destination => new PdfDestination(Document, PDFium.FPDFBookmark_GetDest(Document.Handle, Handle), null);
+        public PdfDestination Destination
+        {
+            get
+            {
+                Native.FpdfDestT handle;
+                lock (Document.NativeObject) { handle = Native.fpdf_doc.FPDFBookmarkGetDest(Document.NativeObject, NativeObject); }
+                return new(Document, handle, string.Empty);
+            }
+        }
 
-		public PdfAction Action => new PdfAction(Document, PDFium.FPDFBookmark_GetAction(Handle));
+        public PdfAction Action
+        {
+            get
+            {
+                Native.FpdfActionT handle;
+                lock (Document.NativeObject) { handle = Native.fpdf_doc.FPDFBookmarkGetAction(NativeObject); }
+                return new(Document, handle);
+            }
+        }
 
-		internal PdfBookmark(PdfDocument doc, FPDF_BOOKMARK handle)
-			: base(handle)
-		{
-			Document = doc;
-		}
-	}
+        internal PdfBookmark(PdfDocument doc, Native.FpdfBookmarkT handle)
+            : base(handle)
+        {
+            Document = doc;
+        }
+    }
 }
